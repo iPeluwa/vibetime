@@ -53,7 +53,8 @@ test('ZCode hooks merge non-destructively and are idempotent', () => {
   assert.match(vibeGroup(first.config, 'Stop').hooks[0].command, /__hook activity --tool zcode$/);
   for (const event of ZCODE_EVENTS) {
     assert.equal(vibeGroup(first.config, event).hooks[0].type, 'command');
-    assert.equal(vibeGroup(first.config, event).hooks[0].timeoutMs, 10000);
+    assert.equal(vibeGroup(first.config, event).hooks[0].timeout, 10);
+    assert.equal('enabled' in vibeGroup(first.config, event).hooks[0], false);
     assert.equal('matcher' in vibeGroup(first.config, event), false);
   }
   assert.equal('SessionEnd' in first.config.hooks.events, false);
@@ -64,9 +65,28 @@ test('ZCode hooks merge non-destructively and are idempotent', () => {
   assert.equal(second.updated, 0);
 });
 
+test('a hook the user switched on in ZCode is left exactly as ZCode saved it', () => {
+  const first = mergeZcodeHooks({ plugins: {} });
+  // What ZCode writes back when the user switches the hooks on in Settings > Hooks.
+  first.config.hooks.enabled = true;
+  for (const event of ZCODE_EVENTS) {
+    const hook = vibeGroup(first.config, event).hooks[0];
+    hook.enabled = true;
+  }
+  const saved = JSON.parse(JSON.stringify(first.config));
+
+  const second = mergeZcodeHooks(first.config);
+  assert.equal(second.added, 0);
+  assert.equal(second.existing, 4);
+  assert.equal(second.updated, 0);
+  assert.deepEqual(second.config, saved);
+});
+
 test('ZCode reinstall refreshes stale commands without duplicating hooks', () => {
   const first = mergeZcodeHooks({});
-  vibeGroup(first.config, 'SessionStart').hooks[0].command = "'/old/node' '/old/vibe' __hook session-start --tool zcode";
+  const stale = vibeGroup(first.config, 'SessionStart').hooks[0];
+  stale.command = "'/old/node' '/old/vibe' __hook session-start --tool zcode";
+  stale.enabled = true;
 
   const second = mergeZcodeHooks(first.config);
   const ours = second.config.hooks.events.SessionStart.filter((group) => group.hooks[0].command.includes('--tool zcode'));
@@ -75,6 +95,8 @@ test('ZCode reinstall refreshes stale commands without duplicating hooks', () =>
   assert.equal(second.updated, 1);
   assert.equal(ours.length, 1);
   assert.doesNotMatch(ours[0].hooks[0].command, /old\/node/);
+  // A new command is new code to run, so the user's earlier switch-on does not carry over.
+  assert.equal('enabled' in ours[0].hooks[0], false);
 });
 
 test('ZCode hook removal preserves unrelated hooks and the rest of the config', () => {
