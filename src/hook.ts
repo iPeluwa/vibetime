@@ -159,7 +159,10 @@ async function onSessionStart(sessionId: string, cwd: string, tool: HookTool): P
   // activity events: those fire on every tool call.
   reconcileInstall();
   await refreshTunables(HOOK_NETWORK_BUDGET_MS).catch(() => {});
-  await refreshAndReap();
+  // A desktop session left open is only ever finalized here, by the reaper, and
+  // it would otherwise wait for some other session's clean end to be sent.
+  // Only when something settled, so a quiet start spends no time on the network.
+  if (await refreshAndReap()) await flushPendingSubmissions(HOOK_NETWORK_BUDGET_MS).catch(() => {});
 
   // SessionStart can also fire when an existing conversation is resumed — key
   // off the provider's session id so a session is only opened once.

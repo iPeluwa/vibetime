@@ -236,11 +236,12 @@ export async function deleteSession(id: string): Promise<void> {
 // an idle desktop session alive.
 const HEARTBEAT_MS = Math.max(3 * TUNABLES.pollIntervalMs, 2 * 60_000);
 
-export async function reapOrphanedSessions(): Promise<void> {
-  await withLock(() => {
+// Returns how many sessions it finalized, so a caller can send them on.
+export async function reapOrphanedSessions(): Promise<number> {
+  return withLock(() => {
     const data = readDb();
     const now = Date.now();
-    let changed = false;
+    let reaped = 0;
 
     for (const s of data.sessions) {
       if (s.exitCode !== -1) continue;
@@ -268,10 +269,11 @@ export async function reapOrphanedSessions(): Promise<void> {
         s.reapedAt = s.endedAt;
         s.momentum = scoreReaped(s, readConfig());
       }
-      changed = true;
+      reaped++;
     }
 
-    if (changed) writeDb(data);
+    if (reaped) writeDb(data);
+    return reaped;
   });
 }
 
