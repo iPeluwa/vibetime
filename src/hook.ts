@@ -255,10 +255,7 @@ async function onActivity(sessionId: string, cwd: string): Promise<void> {
 // marked before sending so a failure waits for the next window instead of
 // looping; the signature only once the server has it, so a failure is resent.
 async function submitProgress(session: Session): Promise<void> {
-  if (session.exitCode !== -1 || session.momentum !== 'shipped') return;
-
-  const signature = progressSignature(session);
-  if (signature === session.acceptedProgressSignature) return;
+  if (session.exitCode !== -1) return;
 
   const last = session.lastProgressSubmitAt ? Date.parse(session.lastProgressSubmitAt) : 0;
   if (last && Date.now() - last < IN_PROGRESS_SUBMIT_INTERVAL_MS) return;
@@ -266,6 +263,16 @@ async function submitProgress(session: Session): Promise<void> {
   try {
     await updateSession(session.id, { lastProgressSubmitAt: new Date().toISOString() });
   } catch { return; }
+
+  // A settled session normally waits for a clean end, but when every endcard
+  // flush of a day fails — one rate-limit window is enough — nothing ever
+  // retriggers: desktop sessions can stay open for days. This one is live and
+  // already on the network, so it carries the settled queue with it.
+  await flushPendingSubmissions(HOOK_NETWORK_BUDGET_MS).catch(() => {});
+
+  if (session.momentum !== 'shipped') return;
+  const signature = progressSignature(session);
+  if (signature === session.acceptedProgressSignature) return;
 
   if (await submitInProgress(session, HOOK_NETWORK_BUDGET_MS).catch(() => false)) {
     try { await updateSession(session.id, { acceptedProgressSignature: signature }); } catch {}
